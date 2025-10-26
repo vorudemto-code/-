@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -476,7 +477,7 @@
                         <input type="checkbox" checked={checkedPlayers.has(player.id)} onChange={() => toggleCheckbox(player.id)} className="w-5 h-5 cursor-pointer accent-purple-600" />
                       </td>
                       <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
-                        <select value={player.class} onChange={(e) => updatePlayer(player.id, 'class', e.target.value)} className="w-full text-center px-2 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold">
+                        <select value={player.class} onChange={(e) => updatePlayer(player.id, 'class', e.target.value)} className="w-20 text-center px-2 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold">
                           {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
                         </select>
                       </td>
@@ -487,7 +488,7 @@
                         </div>
                       </td>
                       <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
-                        <select value={player.prefecture} onChange={(e) => updatePlayer(player.id, 'prefecture', e.target.value)} className="w-full text-center px-2 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold">
+                        <select value={player.prefecture} onChange={(e) => updatePlayer(player.id, 'prefecture', e.target.value)} className="w-20 text-center px-2 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold">
                           {prefectures.map(pref => <option key={pref} value={pref}>{pref}</option>)}
                         </select>
                       </td>
