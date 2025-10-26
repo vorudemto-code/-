@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>競輪選手メモ帳</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // Lucide icons as inline SVG
+    const Trash2 = ({ size = 16 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+      </svg>
+    );
+
+    const Plus = ({ size = 16 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    );
+
+    const Download = ({ size = 16 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+    );
+
+    const Copy = ({ size = 16 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      </svg>
+    );
+
+    const Check = ({ size = 16 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    );
+
+    function KeirinMemo() {
+      const symbols = ['◎', '○', '△', '×', '－'];
+      const buildTypes = ['自分優先', 'ライン貢献', '積極先行', '◎', '○', '△', '×', '－', '同県連携なら〇', '地元勢いたら〇', '地元、同県勢いたら〇'];
+      const straightSpeedTypes = ['◎', '○', '△', '×', '－'];
+      const soloEvaluationTypes = ['自力メイン', '自在メイン', '展開待ち', '地蔵', '不明'];
+      const classes = ['SS', 'S1', 'S2', 'A1', 'A2', 'A3', 'ガールズ'];
+      const prefectures = ['北海道', '青森', '岩手', '宮城', '秋田', '山形', '福島', '茨城', '栃木', '群馬', '埼玉', '千葉', '東京', '神奈川', '新潟', '富山', '石川', '福井', '山梨', '長野', '岐阜', '静岡', '愛知', '三重', '滋賀', '京都', '大阪', '兵庫', '奈良', '和歌山', '鳥取', '島根', '岡山', '広島', '山口', '徳島', '香川', '愛媛', '高知', '福岡', '佐賀', '長崎', '熊本', '大分', '宮崎', '鹿児島', '沖縄'];
+
+      const [activeClass, setActiveClass] = useState('S1');
+      const [copied, setCopied] = useState(false);
+      const [searchTerm, setSearchTerm] = useState('');
+      const [filterPrefecture, setFilterPrefecture] = useState('all');
+      const [expandedEvaluation, setExpandedEvaluation] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [showComparison, setShowComparison] = useState(false);
+      const [checkedPlayers, setCheckedPlayers] = useState(new Set());
+      const [sortType, setSortType] = useState('name');
+
+      const [players, setPlayers] = useState([
+        { id: 1, name: '市田雄', class: 'SS', prefecture: '北海道', period: '178', speed: '◎', stamina: '○', strength: '○', build: '○', evaluation: 'デビュー後も絶好調。ラインの意識も高い力強さ', straightSpeed: '◎', soloEvaluation: '自力メイン' },
+        { id: 2, name: '尾野翔一', class: 'A1', prefecture: '東京', period: '176', speed: '○', stamina: '○', strength: '○', build: '○', evaluation: '強いのはわかるけど組み立てで子ぶ？もしかして脚的力？', straightSpeed: '○', soloEvaluation: '自在メイン' }
+      ]);
+
+      const [newPlayer, setNewPlayer] = useState({
+        name: '', class: 'SS', prefecture: '北海道', period: '', speed: '○', stamina: '○', strength: '○', build: '○', straightSpeed: '◎', soloEvaluation: '自力メイン', evaluation: ''
+      });
+
+      const initDB = async () => {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open('KeirinMemoDB', 1);
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result);
+          request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains('players')) {
+              db.createObjectStore('players', { keyPath: 'id' });
+            }
+          };
+        });
+      };
+
+      const loadPlayers = async () => {
+        try {
+          const db = await initDB();
+          return new Promise((resolve) => {
+            const transaction = db.transaction('players', 'readonly');
+            const store = transaction.objectStore('players');
+            const request = store.getAll();
+            request.onsuccess = () => {
+              const data = request.result;
+              resolve(data.length > 0 ? data : null);
+            };
+          });
+        } catch (error) {
+          console.error('DB読み込みエラー:', error);
+          return null;
+        }
+      };
+
+      const saveToDb = async (playersData) => {
+        try {
+          const db = await initDB();
+          const transaction = db.transaction('players', 'readwrite');
+          const store = transaction.objectStore('players');
+          store.clear();
+          playersData.forEach(player => store.put(player));
+          return new Promise((resolve) => {
+            transaction.oncomplete = () => resolve(true);
+          });
+        } catch (error) {
+          console.error('DB保存エラー:', error);
+        }
+      };
+
+      useEffect(() => {
+        const initialize = async () => {
+          const savedPlayers = await loadPlayers();
+          if (savedPlayers) setPlayers(savedPlayers);
+          setLoading(false);
+        };
+        initialize();
+      }, []);
+
+      const saveTimerRef = useRef(null);
+
+      const debouncedSave = (data) => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => saveToDb(data), 500);
+      };
+
+      const addPlayer = () => {
+        if (newPlayer.name.trim()) {
+          const updatedPlayers = [...players, { ...newPlayer, id: Date.now() }];
+          setPlayers(updatedPlayers);
+          saveToDb(updatedPlayers);
+          setNewPlayer({ name: '', class: activeClass, prefecture: '北海道', period: '', speed: '○', stamina: '○', strength: '○', build: '○', straightSpeed: '◎', soloEvaluation: '自力メイン', evaluation: '' });
+        }
+      };
+
+      const updatePlayer = (id, field, value) => {
+        const updatedPlayers = players.map(p => p.id === id ? { ...p, [field]: value } : p);
+        setPlayers(updatedPlayers);
+        debouncedSave(updatedPlayers);
+      };
+
+      const removePlayer = (id) => {
+        const updatedPlayers = players.filter(p => p.id !== id);
+        setPlayers(updatedPlayers);
+        saveToDb(updatedPlayers);
+        const newChecked = new Set(checkedPlayers);
+        newChecked.delete(id);
+        setCheckedPlayers(newChecked);
+      };
+
+      const toggleCheckbox = (id) => {
+        const newChecked = new Set(checkedPlayers);
+        if (newChecked.has(id)) {
+          newChecked.delete(id);
+        } else {
+          newChecked.add(id);
+        }
+        setCheckedPlayers(newChecked);
+      };
+
+      const getComparisonPlayers = () => players.filter(p => checkedPlayers.has(p.id));
+
+      const filteredPlayers = useMemo(() => 
+        players.filter(p => 
+          p.class === activeClass && 
+          p.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+          (filterPrefecture === 'all' || p.prefecture === filterPrefecture)
+        ), [players, activeClass, searchTerm, filterPrefecture]
+      );
+
+      const getSortedPlayers = useMemo(() => {
+        const sorted = [...filteredPlayers];
+        return sortType === 'name' 
+          ? sorted.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+          : sorted.sort((a, b) => a.prefecture.localeCompare(b.prefecture, 'ja'));
+      }, [filteredPlayers, sortType]);
+
+      const getClassColor = (cls) => {
+        const colors = { SS: 'bg-red-900 text-white', S1: 'bg-red-700 text-white', S2: 'bg-red-600 text-white', A1: 'bg-blue-700 text-white', A2: 'bg-blue-600 text-white', A3: 'bg-blue-500 text-white', ガールズ: 'bg-pink-600 text-white' };
+        return colors[cls] || 'bg-gray-600 text-white';
+      };
+
+      const getClassBgColor = (cls) => {
+        if (['SS', 'S1', 'S2'].includes(cls)) return 'bg-red-50 border-red-200';
+        if (['A1', 'A2', 'A3'].includes(cls)) return 'bg-blue-50 border-blue-200';
+        if (cls === 'ガールズ') return 'bg-pink-50 border-pink-200';
+        return 'bg-gray-50';
+      };
+
+      const getSymbolColor = (symbol) => {
+        const colors = { '◎': 'text-red-600 font-bold', '○': 'text-blue-600 font-semibold', '△': 'text-yellow-600 font-semibold', '×': 'text-gray-400', '－': 'text-gray-300' };
+        return colors[symbol] || '';
+      };
+
+      const downloadData = () => {
+        try {
+          const dataStr = JSON.stringify(players, null, 2);
+          const dataBlob = new Blob([dataStr], { type: 'application/json' });
+          const url = URL.createObjectURL(dataBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `keirin_memo_${new Date().toISOString().split('T')[0]}.json`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        } catch (error) {
+          console.error('エクスポートエラー:', error);
+          alert('エクスポートに失敗しました。');
+        }
+      };
+
+      const importData = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const importedData = JSON.parse(e.target.result);
+            if (!Array.isArray(importedData)) {
+              alert('❌ 無効なファイル形式です');
+              return;
+            }
+            const shouldMerge = confirm(`📥 ${importedData.length}名の選手データが見つかりました。\n\n現在のデータ: ${players.length}名\nインポートするデータ: ${importedData.length}名\n\n「OK」= 既存データに追加\n「キャンセル」= 既存データを置き換え`);
+            let newPlayers;
+            if (shouldMerge) {
+              const importedWithNewIds = importedData.map(p => ({ ...p, id: Date.now() + Math.random() }));
+              newPlayers = [...players, ...importedWithNewIds];
+            } else {
+              newPlayers = importedData;
+            }
+            setPlayers(newPlayers);
+            await saveToDb(newPlayers);
+            alert(`✅ インポート完了！ ${newPlayers.length}名の選手が登録されています。`);
+          } catch (error) {
+            console.error('インポートエラー:', error);
+            alert('❌ ファイルの読み込みに失敗しました。');
+          }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+      };
+
+      const copyToClipboard = () => {
+        const summary = players.map(p => `${p.name} (${p.class}) - Period:${p.period} Speed:${p.speed} Stamina:${p.stamina} - ${p.evaluation}`).join('\n');
+        navigator.clipboard.writeText(summary);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      };
+
+      if (loading) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-slate-600">データを読み込み中...</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-6">
+          <div className="max-w-full mx-auto">
+            <div className="flex justify-between items-start mb-6 flex-col md:flex-row gap-4">
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold text-slate-800 mb-2">📋 競輪選手メモ帳</h1>
+                <p className="text-slate-600">選手の能力と特徴を分類別に管理・メモできます</p>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => setShowComparison(!showComparison)} disabled={checkedPlayers.size === 0} className={`px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm font-semibold ${checkedPlayers.size === 0 ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : showComparison ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-purple-500 hover:bg-purple-600 text-white'}`}>
+                  🔍 比較 ({checkedPlayers.size})
+                </button>
+                <button onClick={copyToClipboard} className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm">
+                  {copied ? <Check size={16} /> : <Copy size={16} />}
+                  {copied ? 'コピー済み' : 'コピー'}
+                </button>
+                <label className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm cursor-pointer">
+                  <Plus size={16} /> インポート
+                  <input type="file" accept=".json" onChange={importData} className="hidden" />
+                </label>
+                <button onClick={downloadData} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm">
+                  <Download size={16} /> エクスポート
+                </button>
+              </div>
+            </div>
+
+            {showComparison && checkedPlayers.size > 0 && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-white rounded-lg shadow-2xl p-6 w-full max-w-7xl my-8">
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-3xl font-bold text-purple-900">🔍 選手比較（{checkedPlayers.size}名）</h2>
+                    <button onClick={() => setShowComparison(false)} className="text-gray-500 hover:text-gray-700 text-3xl font-bold transition">✕</button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gradient-to-r from-purple-600 to-purple-700 text-white">
+                          <th className="border border-purple-400 px-4 py-4 text-left font-bold">項目</th>
+                          {getComparisonPlayers().map(player => (
+                            <th key={player.id} className="border border-purple-400 px-6 py-4 text-center font-bold min-w-56">
+                              <div className={`font-bold mb-2 px-3 py-1 rounded text-white text-sm inline-block ${getClassColor(player.class)}`}>{player.class}</div>
+                              <div className="text-lg whitespace-nowrap">{player.name}</div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { label: '期', key: 'period', size: 'text-lg' },
+                          { label: 'スピード', key: 'speed', size: 'text-4xl', useColor: true },
+                          { label: 'スタミナ', key: 'stamina', size: 'text-4xl', useColor: true },
+                          { label: '横の強さ', key: 'strength', size: 'text-4xl', useColor: true, default: '○' },
+                          { label: '組み立て', key: 'build', size: 'text-lg', default: '○' },
+                          { label: 'Sの速さ', key: 'straightSpeed', size: 'text-lg', useColor: true, default: '◎' },
+                          { label: '単騎評価', key: 'soloEvaluation', size: 'text-lg', default: '自力メイン' }
+                        ].map((row, idx) => (
+                          <tr key={row.key} className={idx % 2 === 0 ? 'bg-purple-50' : 'bg-white'}>
+                            <td className="border border-purple-300 px-4 py-4 font-bold text-slate-700 bg-purple-100">{row.label}</td>
+                            {getComparisonPlayers().map(player => (
+                              <td key={player.id} className={`border border-purple-300 px-6 py-4 text-center ${idx % 2 === 0 ? 'hover:bg-white' : 'hover:bg-purple-50'} transition`}>
+                                <span className={`${row.size} font-bold ${row.useColor ? getSymbolColor(player[row.key] || row.default) : 'text-slate-700'}`}>
+                                  {player[row.key] || row.default || '－'}
+                                </span>
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                        <tr className="bg-white">
+                          <td className="border border-purple-300 px-4 py-4 font-bold text-slate-700 bg-purple-100">評価・特徴</td>
+                          {getComparisonPlayers().map(player => (
+                            <td key={player.id} className="border border-purple-300 px-6 py-4 text-sm hover:bg-purple-50 transition">
+                              <div className="text-slate-700 whitespace-pre-wrap max-h-48 overflow-y-auto">{player.evaluation || 'なし'}</div>
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-6 flex justify-end">
+                    <button onClick={() => setShowComparison(false)} className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg font-semibold transition">閉じる</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2 mb-6 flex-wrap">
+              {classes.map(cls => (
+                <button key={cls} onClick={() => { setActiveClass(cls); setNewPlayer({ ...newPlayer, class: cls }); }} className={`px-6 py-3 font-bold rounded-lg text-lg transition ${activeClass === cls ? `${getClassColor(cls)} shadow-lg` : 'bg-white text-slate-700 border-2 border-slate-300 hover:border-slate-400'}`}>
+                  {cls} ({players.filter(p => p.class === cls).length})
+                </button>
+              ))}
+            </div>
+
+            <div className="mb-6 flex gap-3 flex-col md:flex-row">
+              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="選手を検索..." className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm" />
+              <select value={filterPrefecture} onChange={(e) => setFilterPrefecture(e.target.value)} className="md:w-48 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm font-semibold bg-white">
+                <option value="all">📍 所属：すべて</option>
+                {prefectures.map(pref => <option key={pref} value={pref}>📍 所属：{pref}</option>)}
+              </select>
+            </div>
+
+            <div className={`rounded-lg shadow-md p-4 md:p-6 mb-6 border-l-4 ${getClassBgColor(activeClass)}`}>
+              <h2 className="text-lg font-bold text-slate-700 mb-4">新規選手を追加</h2>
+              <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">選手名</label>
+                  <input type="text" value={newPlayer.name} onChange={(e) => setNewPlayer({ ...newPlayer, name: e.target.value })} onKeyPress={(e) => e.key === 'Enter' && addPlayer()} placeholder="選手名" className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">クラス</label>
+                  <select value={newPlayer.class} onChange={(e) => setNewPlayer({ ...newPlayer, class: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm font-semibold">
+                    {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">所属</label>
+                  <select value={newPlayer.prefecture} onChange={(e) => setNewPlayer({ ...newPlayer, prefecture: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm font-semibold">
+                    {prefectures.map(pref => <option key={pref} value={pref}>{pref}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">期</label>
+                  <input type="text" value={newPlayer.period} onChange={(e) => setNewPlayer({ ...newPlayer, period: e.target.value.slice(0, 3) })} onKeyPress={(e) => e.key === 'Enter' && addPlayer()} placeholder="例：178" maxLength="3" className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm text-center font-semibold" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">スピード</label>
+                  <select value={newPlayer.speed} onChange={(e) => setNewPlayer({ ...newPlayer, speed: e.target.value })} className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-base font-semibold ${getSymbolColor(newPlayer.speed)}`}>
+                    {symbols.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">スタミナ</label>
+                  <select value={newPlayer.stamina} onChange={(e) => setNewPlayer({ ...newPlayer, stamina: e.target.value })} className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-base font-semibold ${getSymbolColor(newPlayer.stamina)}`}>
+                    {symbols.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">横の強さ</label>
+                  <select value={newPlayer.strength} onChange={(e) => setNewPlayer({ ...newPlayer, strength: e.target.value })} className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-base font-semibold ${getSymbolColor(newPlayer.strength)}`}>
+                    {symbols.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">組み立て</label>
+                  <select value={newPlayer.build} onChange={(e) => setNewPlayer({ ...newPlayer, build: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm font-semibold bg-white">
+                    {buildTypes.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">Sの速さ</label>
+                  <select value={newPlayer.straightSpeed} onChange={(e) => setNewPlayer({ ...newPlayer, straightSpeed: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm font-semibold bg-white">
+                    {straightSpeedTypes.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">単騎評価</label>
+                  <select value={newPlayer.soloEvaluation} onChange={(e) => setNewPlayer({ ...newPlayer, soloEvaluation: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm font-semibold bg-white">
+                    {soloEvaluationTypes.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 font-semibold mb-1">特徴・評価</label>
+                  <textarea value={newPlayer.evaluation} onChange={(e) => setNewPlayer({ ...newPlayer, evaluation: e.target.value })} placeholder="特徴・評価" className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-sm resize-vertical min-h-[42px]" rows="1" />
+                </div>
+                <div className="col-span-2 md:col-span-1 flex items-end">
+                  <button onClick={addPlayer} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 rounded flex items-center justify-center gap-1 text-sm transition">
+                    <Plus size={16} /> 追加
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto bg-white rounded-lg shadow-md border-t-4" style={{ borderTopColor: activeClass.startsWith('S') || activeClass === 'SS' ? '#dc2626' : activeClass === 'ガールズ' ? '#ec4899' : '#2563eb' }}>
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className={`text-white ${activeClass.startsWith('S') || activeClass === 'SS' ? 'bg-red-600' : activeClass === 'ガールズ' ? 'bg-pink-600' : 'bg-blue-600'}`}>
+                    <th className="border border-slate-300 px-2 py-3 text-center font-bold text-sm w-10">比較</th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-20">クラス</th>
+                    <th className="border border-slate-300 px-3 py-3 text-left font-bold text-sm w-32">
+                      <button onClick={() => setSortType('name')} className={`flex items-center gap-1 transition ${sortType === 'name' ? 'underline' : 'opacity-70 hover:opacity-100'}`}>
+                        選手 {sortType === 'name' ? '↓' : ''}
+                      </button>
+                    </th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-24">
+                      <button onClick={() => setSortType('prefecture')} className={`flex items-center gap-1 justify-center transition ${sortType === 'prefecture' ? 'underline' : 'opacity-70 hover:opacity-100'}`}>
+                        所属 {sortType === 'prefecture' ? '↓' : ''}
+                      </button>
+                    </th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-14">期</th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-20">スピード</th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-20">スタミナ</th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-20">横の強さ</th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-20">組み立て</th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-24">Sの速さ</th>
+                    <th className="border border-slate-300 px-3 py-3 text-center font-bold text-sm w-24">単騎評価</th>
+                    <th className="border border-slate-300 px-3 py-3 text-left font-bold text-sm flex-1">特徴・評価</th>
+                    <th className="border border-slate-300 px-2 py-3 text-center font-bold text-sm w-10">削除</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {getSortedPlayers.map((player, idx) => (
+                    <tr key={player.id} className={`${checkedPlayers.has(player.id) ? 'bg-purple-100 border-l-4 border-purple-600' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <input type="checkbox" checked={checkedPlayers.has(player.id)} onChange={() => toggleCheckbox(player.id)} className="w-5 h-5 cursor-pointer accent-purple-600" />
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <select value={player.class} onChange={(e) => updatePlayer(player.id, 'class', e.target.value)} className="w-full text-center px-2 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold">
+                          {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                        </select>
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3">
+                        <div className="flex gap-1 items-center">
+                          <input type="text" value={player.name} onChange={(e) => updatePlayer(player.id, 'name', e.target.value.slice(0, 7))} className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm" maxLength="7" />
+                          <button onClick={() => setExpandedEvaluation(expandedEvaluation === player.id ? null : player.id)} className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs transition">↓</button>
+                        </div>
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <select value={player.prefecture} onChange={(e) => updatePlayer(player.id, 'prefecture', e.target.value)} className="w-full text-center px-2 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold">
+                          {prefectures.map(pref => <option key={pref} value={pref}>{pref}</option>)}
+                        </select>
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <input type="text" value={player.period} onChange={(e) => updatePlayer(player.id, 'period', e.target.value.slice(0, 3))} maxLength="3" className="w-12 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm text-center font-semibold" />
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <select value={player.speed} onChange={(e) => updatePlayer(player.id, 'speed', e.target.value)} className={`w-full text-center px-1 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-lg font-semibold ${getSymbolColor(player.speed)}`}>
+                          {symbols.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <select value={player.stamina} onChange={(e) => updatePlayer(player.id, 'stamina', e.target.value)} className={`w-full text-center px-1 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-lg font-semibold ${getSymbolColor(player.stamina)}`}>
+                          {symbols.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <select value={player.strength} onChange={(e) => updatePlayer(player.id, 'strength', e.target.value)} className={`w-full text-center px-1 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-lg font-semibold ${getSymbolColor(player.strength)}`}>
+                          {symbols.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <select value={player.build} onChange={(e) => updatePlayer(player.id, 'build', e.target.value)} className="w-full text-center px-1 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold bg-white">
+                          {buildTypes.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <select value={player.straightSpeed || '◎'} onChange={(e) => updatePlayer(player.id, 'straightSpeed', e.target.value)} className={`w-full text-center px-1 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold bg-white ${getSymbolColor(player.straightSpeed)}`}>
+                          {straightSpeedTypes.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td className="border border-slate-300 px-3 md:px-4 py-3 text-center">
+                        <select value={player.soloEvaluation || '自力メイン'} onChange={(e) => updatePlayer(player.id, 'soloEvaluation', e.target.value)} className="w-full text-center px-1 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 text-sm font-semibold bg-white">
+                          {soloEvaluationTypes.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td className="border border-slate-300 px-2 py-3 max-w-xs">
+                        <div className="flex gap-1 items-start">
+                          <div className="flex-1">
+                            {expandedEvaluation === player.id ? (
+                              <textarea value={player.evaluation} onChange={(e) => updatePlayer(player.id, 'evaluation', e.target.value)} className="w-full px-2 py-2 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-300 text-xs min-h-24 bg-blue-50 resize-vertical" placeholder="詳細な評価やメモ..." />
+                            ) : (
+                              <div className="text-xs text-gray-700 whitespace-pre-wrap break-words">{player.evaluation || <span className="text-gray-400">クリックして編集</span>}</div>
+                            )}
+                          </div>
+                          <button onClick={() => setExpandedEvaluation(expandedEvaluation === player.id ? null : player.id)} className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs transition mt-1 flex-shrink-0">
+                            {expandedEvaluation === player.id ? '△' : '↓'}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="border border-slate-300 px-2 py-3 text-center">
+                        <button onClick={() => removePlayer(player.id)} className="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-sm transition">
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {filteredPlayers.length === 0 && (
+              <div className="text-center py-8 text-slate-500 bg-white rounded-lg mt-4">
+                <p>{searchTerm ? `「${searchTerm}」に一致する選手がありません` : `${activeClass}の選手がまだ登録されていません。上のフォームから追加してください。`}</p>
+              </div>
+            )}
+
+            <div className="mt-6 pt-4 border-t border-slate-300">
+              <p className="text-sm text-slate-600 font-semibold">
+                <span className="text-red-900">SS:</span> {players.filter(p => p.class === 'SS').length}名 / 
+                <span className="text-red-700 ml-2">S1:</span> {players.filter(p => p.class === 'S1').length}名 / 
+                <span className="text-red-600 ml-2">S2:</span> {players.filter(p => p.class === 'S2').length}名 / 
+                <span className="text-blue-700 ml-2">A1:</span> {players.filter(p => p.class === 'A1').length}名 / 
+                <span className="text-blue-600 ml-2">A2:</span> {players.filter(p => p.class === 'A2').length}名 / 
+                <span className="text-blue-500 ml-2">A3:</span> {players.filter(p => p.class === 'A3').length}名 / 
+                <span className="text-pink-600 ml-2">ガールズ:</span> {players.filter(p => p.class === 'ガールズ').length}名
+              </p>
+              <p className="text-xs text-slate-500 mt-2">💾 データは自動的にお使いのブラウザに保存されます</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<KeirinMemo />, document.getElementById('root'));
+  </script>
+</body>
+</html>
